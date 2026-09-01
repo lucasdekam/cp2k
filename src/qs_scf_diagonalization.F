@@ -1053,11 +1053,13 @@ CONTAINS
          IF (PRESENT(probe) .EQV. .TRUE.) THEN
             scf_control%smear%do_smear = .FALSE.
             CALL kpoint_set_mo_occupation(kpoints, scf_control%smear, &
-                                          probe=probe)
+                                          probe=probe, &
+                                          tot_zeff_corr=scf_env%sum_zeff_corr)
          ELSE
             CALL kpoint_set_mo_occupation(kpoints, scf_control%smear, &
                                           added_mos_auto=scf_control%added_mos_auto, &
-                                          added_mos_auto_grow=my_added_mos_auto_grow)
+                                          added_mos_auto_grow=my_added_mos_auto_grow, &
+                                          tot_zeff_corr=scf_env%sum_zeff_corr)
          END IF
          IF (my_added_mos_auto_grow) THEN
             IF (PRESENT(added_mos_auto_grow)) added_mos_auto_grow = .TRUE.
