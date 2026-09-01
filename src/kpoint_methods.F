@@ -1578,6 +1578,21 @@ CONTAINS
       ! Smearkp2 call) take the whole correction; per-spin targets half each
       zeff_corr_spin = 0.5_dp*my_zeff_corr
 
+      ! Without smearing the k-point occupations are a step function, so the
+      ! achievable electron counts are sums of k-point weights times maxocc and
+      ! a fractional target is simply not representable: the zero-width solver
+      ! bisects mu and converges to the wrong charge. Measured on a 100-atom
+      ! slab at a correction of +0.2 e: net cell charge -0.855 e. Refuse rather
+      ! than return that. (At the Gamma point the aufbau branch of
+      ! set_mo_occupation_1 handles this case correctly, so it is only the
+      ! k-point path that has to say no.)
+      IF (ABS(my_zeff_corr) > 0.0_dp .AND. .NOT. smear%do_smear) THEN
+         CALL cp_abort(__LOCATION__, &
+                       "CORE_CORRECTION /= 0.0 with k-points requires &SMEAR. "// &
+                       "Without smearing the occupations are a step function "// &
+                       "and a fractional electron count cannot be represented.")
+      END IF
+
       ! first collect all the eigenvalues
       CALL get_kpoint_info(kpoint, nkp=nkp)
       kp => kpoint%kp_env(1)%kpoint_env
