@@ -4,4 +4,12 @@
 # 4th field ---> reference result
 "run-corr_dipm-RKS.inp"                 = [{matcher="M089", tol=1e-04, ref=0.0002025426}]
 "run-corr_dipm-UKS.inp"                 = [{matcher="M089", tol=1e-04, ref=0.0002023505}]
+# FERMI_DIRAC, and FERMI_DIRAC + k-points. The two tests above use
+# ENERGY_WINDOW, which redistributes the existing occupations and so
+# preserved the CORE_CORRECTION even when it was being discarded
+# everywhere else. On an unpatched build these two give ~3.1e-6 -- the
+# correction thrown away -- against ~2.02e-4 here, so they fail by 2e-4
+# on a 1e-4 tolerance.
+"run-corr_dipm-RKS-fd.inp"              = [{matcher="M089", tol=1e-04, ref=0.0002025382}]
+"run-corr_dipm-KP-fd.inp"               = [{matcher="M089", tol=1e-04, ref=0.0002024919}]
 #EOF
