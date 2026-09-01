@@ -1532,7 +1532,8 @@ CONTAINS
 !> \param separate_spin_occupations enforce the electron count of each spin channel
 ! **************************************************************************************************
    SUBROUTINE kpoint_set_mo_occupation( &
-      kpoint, smear, probe, added_mos_auto, added_mos_auto_grow, separate_spin_occupations)
+      kpoint, smear, probe, added_mos_auto, added_mos_auto_grow, separate_spin_occupations, &
+      tot_zeff_corr)
 
       TYPE(kpoint_type), POINTER                         :: kpoint
       TYPE(smear_type)                                   :: smear
@@ -1541,6 +1542,7 @@ CONTAINS
       LOGICAL, DIMENSION(:), INTENT(IN), OPTIONAL        :: added_mos_auto
       LOGICAL, INTENT(OUT), OPTIONAL                     :: added_mos_auto_grow
       LOGICAL, INTENT(IN), OPTIONAL                      :: separate_spin_occupations
+      REAL(KIND=dp), INTENT(IN), OPTIONAL                :: tot_zeff_corr
 
       CHARACTER(LEN=*), PARAMETER :: routineN = 'kpoint_set_mo_occupation'
 
@@ -1550,7 +1552,8 @@ CONTAINS
       INTEGER, DIMENSION(2)                              :: kp_range
       LOGICAL                                            :: my_added_mos_auto_grow, &
                                                             my_separate_spin_occupations
-      REAL(KIND=dp)                                      :: kTS, kTS_spin(2), mu, mus(2), nel
+      REAL(KIND=dp)                                      :: kTS, kTS_spin(2), mu, mus(2), my_zeff_corr, &
+                                                            nel, zeff_corr_spin
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :)        :: smatrix
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :)     :: weig, wocc
       REAL(KIND=dp), ALLOCATABLE, DIMENSION(:, :, :, :)  :: icoeff, rcoeff
@@ -1564,6 +1567,16 @@ CONTAINS
 
       my_added_mos_auto_grow = .FALSE.
       IF (PRESENT(added_mos_auto_grow)) added_mos_auto_grow = .FALSE.
+
+      ! CORE_CORRECTION: the smearing solvers below determine mu from a target
+      ! electron count. That target must carry the fractional core charge, or it
+      ! renormalises the correction away and leaves the cell charged. Same
+      ! treatment as set_mo_occupation_1 in qs_mo_occupation.F. [SGh]
+      my_zeff_corr = 0.0_dp
+      IF (PRESENT(tot_zeff_corr)) my_zeff_corr = tot_zeff_corr
+      ! targets built from the total electron count (maxocc = 2, or the combined
+      ! Smearkp2 call) take the whole correction; per-spin targets half each
+      zeff_corr_spin = 0.5_dp*my_zeff_corr
 
       ! first collect all the eigenvalues
       CALL get_kpoint_info(kpoint, nkp=nkp)
@@ -1642,11 +1655,11 @@ CONTAINS
          smear%do_smear = .FALSE. !ensures smearing is switched off
 
          IF (nspin == 1) THEN
-            nel = REAL(nelectron, KIND=dp)
+            nel = REAL(nelectron, KIND=dp) + my_zeff_corr
             CALL probe_occupancy_kp(wocc(:, :, :), mus(1), kTS, weig(:, :, :), rcoeff(:, :, :, :), icoeff(:, :, :, :), 2.0d0, &
                                     probe, nel, wkp)
          ELSE
-            nel = REAL(ne_a, KIND=dp) + REAL(ne_b, KIND=dp)
+            nel = REAL(ne_a, KIND=dp) + REAL(ne_b, KIND=dp) + my_zeff_corr
             CALL probe_occupancy_kp(wocc(:, :, :), mu, kTS, weig(:, :, :), rcoeff(:, :, :, :), icoeff(:, :, :, :), 1.0d0, &
                                     probe, nel, wkp)
             kTS = kTS/2._dp
@@ -1703,21 +1716,21 @@ CONTAINS
             CASE (smear_fermi_dirac)
                ! finite electronic temperature
                IF (nspin == 1) THEN
-                  nel = REAL(nelectron, KIND=dp)
+                  nel = REAL(nelectron, KIND=dp) + my_zeff_corr
                   CALL Smearkp(wocc(:, :, 1), mus(1), kTS, weig(:, :, 1), nel, wkp, &
                                smear%electronic_temperature, 2.0_dp, smear_fermi_dirac)
                   kTS_spin(1) = kTS
                ELSE IF (my_separate_spin_occupations) THEN
-                  nel = REAL(ne_a, KIND=dp)
+                  nel = REAL(ne_a, KIND=dp) + zeff_corr_spin
                   CALL Smearkp(wocc(:, :, 1), mus(1), kTS, weig(:, :, 1), nel, wkp, &
                                smear%electronic_temperature, 1.0_dp, smear_fermi_dirac)
                   kTS_spin(1) = kTS
-                  nel = REAL(ne_b, KIND=dp)
+                  nel = REAL(ne_b, KIND=dp) + zeff_corr_spin
                   CALL Smearkp(wocc(:, :, 2), mus(2), kTS, weig(:, :, 2), nel, wkp, &
                                smear%electronic_temperature, 1.0_dp, smear_fermi_dirac)
                   kTS_spin(2) = kTS
                ELSE
-                  nel = REAL(ne_a, KIND=dp) + REAL(ne_b, KIND=dp)
+                  nel = REAL(ne_a, KIND=dp) + REAL(ne_b, KIND=dp) + my_zeff_corr
                   CALL Smearkp2(wocc(:, :, :), mu, kTS, weig(:, :, :), nel, wkp, &
                                 smear%electronic_temperature, smear_fermi_dirac)
                   kTS = kTS/2._dp
@@ -1726,21 +1739,21 @@ CONTAINS
                END IF
             CASE (smear_gaussian, smear_mp, smear_mv)
                IF (nspin == 1) THEN
-                  nel = REAL(nelectron, KIND=dp)
+                  nel = REAL(nelectron, KIND=dp) + my_zeff_corr
                   CALL Smearkp(wocc(:, :, 1), mus(1), kTS, weig(:, :, 1), nel, wkp, &
                                smear%smearing_width, 2.0_dp, smear%method)
                   kTS_spin(1) = kTS
                ELSE IF (my_separate_spin_occupations) THEN
-                  nel = REAL(ne_a, KIND=dp)
+                  nel = REAL(ne_a, KIND=dp) + zeff_corr_spin
                   CALL Smearkp(wocc(:, :, 1), mus(1), kTS, weig(:, :, 1), nel, wkp, &
                                smear%smearing_width, 1.0_dp, smear%method)
                   kTS_spin(1) = kTS
-                  nel = REAL(ne_b, KIND=dp)
+                  nel = REAL(ne_b, KIND=dp) + zeff_corr_spin
                   CALL Smearkp(wocc(:, :, 2), mus(2), kTS, weig(:, :, 2), nel, wkp, &
                                smear%smearing_width, 1.0_dp, smear%method)
                   kTS_spin(2) = kTS
                ELSE
-                  nel = REAL(ne_a, KIND=dp) + REAL(ne_b, KIND=dp)
+                  nel = REAL(ne_a, KIND=dp) + REAL(ne_b, KIND=dp) + my_zeff_corr
                   CALL Smearkp2(wocc(:, :, :), mu, kTS, weig(:, :, :), nel, wkp, &
                                 smear%smearing_width, smear%method)
                   kTS = kTS/2._dp
@@ -1753,16 +1766,16 @@ CONTAINS
          ELSE
             ! fixed occupations (2/1)
             IF (nspin == 1) THEN
-               nel = REAL(nelectron, KIND=dp)
+               nel = REAL(nelectron, KIND=dp) + my_zeff_corr
                CALL Smearkp(wocc(:, :, 1), mus(1), kTS, weig(:, :, 1), nel, wkp, &
                             0.0_dp, 2.0_dp, smear_gaussian)
                kTS_spin(1) = kTS
             ELSE
-               nel = REAL(ne_a, KIND=dp)
+               nel = REAL(ne_a, KIND=dp) + zeff_corr_spin
                CALL Smearkp(wocc(:, :, 1), mus(1), kTS, weig(:, :, 1), nel, wkp, &
                             0.0_dp, 1.0_dp, smear_gaussian)
                kTS_spin(1) = kTS
-               nel = REAL(ne_b, KIND=dp)
+               nel = REAL(ne_b, KIND=dp) + zeff_corr_spin
                CALL Smearkp(wocc(:, :, 2), mus(2), kTS, weig(:, :, 2), nel, wkp, &
                             0.0_dp, 1.0_dp, smear_gaussian)
                kTS_spin(2) = kTS

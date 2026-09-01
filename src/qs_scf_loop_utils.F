@@ -276,32 +276,7 @@ CONTAINS
          scf_control%eps_diis = 0.0_dp
       END IF
 
-      ! transfer total_zeff_corr from qs_env to scf_env only if
-      ! correct_el_density_dip is switched on [SGh]
-      IF (dft_control%correct_el_density_dip) THEN
-         scf_env%sum_zeff_corr = qs_env%total_zeff_corr
-         IF (ABS(qs_env%total_zeff_corr) > 0.0_dp) THEN
-            IF (scf_env%method /= general_diag_method_nr) THEN
-               CALL cp_abort(__LOCATION__, &
-                             "Please use ALGORITHM STANDARD in "// &
-                             "SCF%DIAGONALIZATION if "// &
-                             "CORE_CORRECTION /= 0.0 and "// &
-                             "SURFACE_DIPOLE_CORRECTION TRUE ")
-            ELSE IF (dft_control%roks) THEN
-               CALL cp_abort(__LOCATION__, &
-                             "Combination of "// &
-                             "CORE_CORRECTION /= 0.0 and "// &
-                             "SURFACE_DIPOLE_CORRECTION TRUE "// &
-                             "is not implemented with ROKS")
-            ELSE IF (scf_control%diagonalization%mom) THEN
-               CALL cp_abort(__LOCATION__, &
-                             "Combination of "// &
-                             "CORE_CORRECTION /= 0.0 and "// &
-                             "SURFACE_DIPOLE_CORRECTION TRUE "// &
-                             "is not implemented with SCF%MOM")
-            END IF
-         END IF
-      END IF
+      CALL setup_zeff_corr(qs_env, scf_env, scf_control, dft_control)
 
       SELECT CASE (scf_env%method)
       CASE DEFAULT
@@ -417,6 +392,54 @@ CONTAINS
    END SUBROUTINE qs_scf_new_mos
 
 ! **************************************************************************************************
+!> \brief Transfers total_zeff_corr from qs_env to scf_env when CORE_CORR_DIP is
+!>        active, and rejects the method combinations that cannot honour it.
+!>
+!>        Shared by the Gamma-point and k-point SCF entries. It has to be called
+!>        from both: the correction is applied where the MO occupations are set,
+!>        and if scf_env%sum_zeff_corr is left at zero that code silently does
+!>        nothing, producing a charged cell rather than the intended partially
+!>        charged cores. Anything other than standard diagonalisation must abort
+!>        here, loudly, for the same reason. [SGh]
+!> \param qs_env ...
+!> \param scf_env ...
+!> \param scf_control ...
+!> \param dft_control ...
+! **************************************************************************************************
+   SUBROUTINE setup_zeff_corr(qs_env, scf_env, scf_control, dft_control)
+      TYPE(qs_environment_type), POINTER                 :: qs_env
+      TYPE(qs_scf_env_type), POINTER                     :: scf_env
+      TYPE(scf_control_type), POINTER                    :: scf_control
+      TYPE(dft_control_type), POINTER                    :: dft_control
+
+      IF (.NOT. dft_control%correct_el_density_dip) RETURN
+
+      scf_env%sum_zeff_corr = qs_env%total_zeff_corr
+      IF (ABS(qs_env%total_zeff_corr) > 0.0_dp) THEN
+         IF (scf_env%method /= general_diag_method_nr) THEN
+            CALL cp_abort(__LOCATION__, &
+                          "Please use ALGORITHM STANDARD in "// &
+                          "SCF%DIAGONALIZATION if "// &
+                          "CORE_CORRECTION /= 0.0 and "// &
+                          "SURFACE_DIPOLE_CORRECTION TRUE ")
+         ELSE IF (dft_control%roks) THEN
+            CALL cp_abort(__LOCATION__, &
+                          "Combination of "// &
+                          "CORE_CORRECTION /= 0.0 and "// &
+                          "SURFACE_DIPOLE_CORRECTION TRUE "// &
+                          "is not implemented with ROKS")
+         ELSE IF (scf_control%diagonalization%mom) THEN
+            CALL cp_abort(__LOCATION__, &
+                          "Combination of "// &
+                          "CORE_CORRECTION /= 0.0 and "// &
+                          "SURFACE_DIPOLE_CORRECTION TRUE "// &
+                          "is not implemented with SCF%MOM")
+         END IF
+      END IF
+
+   END SUBROUTINE setup_zeff_corr
+
+! **************************************************************************************************
 !> \brief Updates MOs and density matrix using diagonalization
 !>        Kpoint code
 !> \param qs_env ...
@@ -481,6 +504,11 @@ CONTAINS
       CALL get_kpoint_info(kpoints, para_env=para_env)
       CPASSERT(ASSOCIATED(para_env))
       scf_env%iter_param = 0.0_dp
+
+      ! Same transfer and guards as the Gamma-point entry. Without this call
+      ! scf_env%sum_zeff_corr stays 0.0 on the k-point path, so CORE_CORR_DIP
+      ! silently does nothing and the cell comes out charged. [SGh]
+      CALL setup_zeff_corr(qs_env, scf_env, scf_control, dft_control)
       disable_diis = dft_control%qs_control%xtb_control%do_tblite .AND. &
                      tb_native_scc_mixer_active(dft_control)
       IF (disable_diis) THEN

@@ -652,10 +652,18 @@ CONTAINS
 !calling of HP module HERE, before smear
       IF (PRESENT(probe)) THEN
          i_first = 1
+         ! see the comment at the smearing block below: probe_occupancy also
+         ! solves against a target electron count, so it needs the same
+         ! CORE_CORRECTION-corrected target
+         total_zeff_corr = 0.0_dp
+         IF (PRESENT(tot_zeff_corr)) THEN
+            total_zeff_corr = tot_zeff_corr
+            IF (INT(mo_set%maxocc) == 1) total_zeff_corr = total_zeff_corr/2.0_dp
+         END IF
          IF (smear%fixed_mag_mom == -1.0_dp) THEN
-            nelec = REAL(mo_set%nelectron, dp)
+            nelec = REAL(mo_set%nelectron, dp) + total_zeff_corr
          ELSE
-            nelec = mo_set%n_el_f
+            nelec = mo_set%n_el_f + total_zeff_corr
          END IF
 
          mo_set%occupation_numbers(:) = 0.0_dp
@@ -722,15 +730,29 @@ CONTAINS
 
       ! Perform smearing
       IF (smear%do_smear) THEN
+         ! If the core charges were changed via CORE_CORRECTION, the aufbau block
+         ! above has already put the extra (fractional) charge on the MOs. The
+         ! smearing methods that solve for mu against a target electron count
+         ! would re-normalise to the INTEGER mo_set%nelectron and silently
+         ! discard it, leaving a charged cell. Correct the target instead, which
+         ! is what the physics asks for: find mu such that sum(f) = N_ions.
+         ! ENERGY_WINDOW is unaffected -- it recomputes nelec from the existing
+         ! occupations further down and merely redistributes them. [SGh]
+         total_zeff_corr = 0.0_dp
+         IF (PRESENT(tot_zeff_corr)) THEN
+            total_zeff_corr = tot_zeff_corr
+            ! same per-spin-channel convention as the aufbau block above
+            IF (INT(mo_set%maxocc) == 1) total_zeff_corr = total_zeff_corr/2.0_dp
+         END IF
          IF (PRESENT(xas_env)) THEN
             i_first = xas_estate + 1
             nelec = xas_nelectron
          ELSE
             i_first = 1
             IF (smear%fixed_mag_mom == -1.0_dp) THEN
-               nelec = REAL(mo_set%nelectron, dp)
+               nelec = REAL(mo_set%nelectron, dp) + total_zeff_corr
             ELSE
-               nelec = mo_set%n_el_f
+               nelec = mo_set%n_el_f + total_zeff_corr
             END IF
          END IF
          SELECT CASE (smear%method)
