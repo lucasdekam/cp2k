@@ -304,8 +304,12 @@ CONTAINS
       CALL get_kpoint_info(kpoints, sab_nl=sab_nl)
 
       IF (update_occupations) THEN
+         ! Pass the CORE_CORR_DIP correction on, as every other occupation update in the
+         ! SCF does: without it this rebuilds the density from the integer electron count,
+         ! i.e. a charged cell, after the initial k-point MOs and after WFN extrapolation.
          CALL kpoint_set_mo_occupation( &
-            kpoints, scf_control%smear, separate_spin_occupations=separate_spins)
+            kpoints, scf_control%smear, separate_spin_occupations=separate_spins, &
+            tot_zeff_corr=scf_env%sum_zeff_corr)
          IF (fixed) CALL qs_kpoint_set_fixed_occupations(kpoints)
       END IF
       CALL kpoint_density_matrices(kpoints)
